@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <getopt.h>
 
 #include "student.h"
 
@@ -177,35 +178,35 @@ pcb_t *dequeue(queue_t *queue)
         winner->next = NULL;
         return winner;
 
-    } 
-    // else if (scheduler_algorithm == PA) {
-    //     double high_p = priority_with_age(get_current_time(), winner);
-    //     curr = winner->next;
-    //     prev = winner;
-    //     while (curr != NULL) {
-    //         unsigned int t = get_current_time();
-    //         double curr_p = priority_with_age(t, curr);
-    //         if (curr_p > high_p) {
-    //             high_p = curr_p;
-    //             winner = curr;
-    //         } else {
-    //             prev = curr;
-    //             curr = curr->next;
-    //         }
-    //     }
-    //     if (winner == queue->head) {
-    //         queue->head = queue->head->next;
-    //     } else if (winner == queue->tail) {
-    //         queue->tail = prev;
-    //         prev->next = NULL;
-    //     } else {
-    //         prev->next = curr->next;
-    //     }
-    //     winner->next = NULL;        
-    //     return winner;
-    // } else if (scheduler_algorithm == RR) {
+    } else if (scheduler_algorithm == PA) {
+        double high_p = priority_with_age(get_current_time(), winner);
+        curr = winner->next;
+        prev = winner;
+        while (curr != NULL) {
+            unsigned int t = get_current_time();
+            double curr_p = priority_with_age(t, curr);
+            if (curr_p > high_p) {
+                high_p = curr_p;
+                winner = curr;
+                break;     
+            }
+            prev = curr;
+            curr = curr->next;
+        }
+        if (winner == queue->head) {
+            queue->head = queue->head->next;
+        } else if (winner == queue->tail) {
+            queue->tail = prev;
+            prev->next = NULL;
+        } else {
+            prev->next = winner->next;
+        }
+        winner->next = NULL;        
+        return winner;
+    } else if (scheduler_algorithm == RR) {
 
-    // }
+    }
+    winner->next = NULL;
     return winner;
 }
 
@@ -284,17 +285,6 @@ extern void idle(unsigned int cpu_id)
     }
     pthread_mutex_unlock(&queue_mutex);
     schedule(cpu_id);
-
-    /*
-     * REMOVE THE LINE BELOW AFTER IMPLEMENTING IDLE()
-     *
-     * idle() must block when the ready queue is empty, or else the CPU threads
-     * will spin in a loop.  Until a ready queue is implemented, we'll put the
-     * thread to sleep to keep it from consuming 100% of the CPU time.  Once
-     * you implement a proper idle() function using a condition variable,
-     * remove the call to mt_safe_usleep() below.
-     */
-    // mt_safe_usleep(1000000);
 }
 
 /** ------------------------Problem 2 & 3-----------------------------------
@@ -316,6 +306,7 @@ extern void preempt(unsigned int cpu_id)
 
     pthread_mutex_lock(&queue_mutex);
     enqueue(rq, curr);
+    curr->state = PROCESS_READY;
     pthread_mutex_unlock(&queue_mutex);
 
     schedule(cpu_id);
@@ -333,6 +324,7 @@ extern void yield(unsigned int cpu_id)
 {
     pthread_mutex_lock(&current_mutex);
     current[cpu_id]->state = PROCESS_WAITING;
+    current[cpu_id] = NULL;
     pthread_mutex_unlock(&current_mutex);
     schedule(cpu_id);
 }
@@ -368,21 +360,32 @@ extern void wake_up(pcb_t *process)
 {
     pthread_mutex_lock(&queue_mutex);
     enqueue(rq, process);
-    process->state = PROCESS_READY;
     pthread_mutex_unlock(&queue_mutex);
+    process->state = PROCESS_READY;
 
-    // if (scheduler_algorithm == PA) {
-    //     double pwa = priority_with_age(get_current_time(), process);
-    //     pthread_mutex_lock(&current_mutex);
-    //     for (unsigned int i = 0; i < cpu_count; i++) {
-    //         if (current[i] == NULL) {
-    //             break;
-    //         } else if (priority_with_age(get_current_time(), current[i]) > pwa) {
-    //             pthread_mutex_unlock(&current_mutex);
-    //             force_preempt(i);
-    //         }
-    //     }
-    // }
+    if (scheduler_algorithm == PA) {
+        
+        unsigned int current_time = get_current_time();
+        double proc_p = priority_with_age(current_time, process);
+        unsigned int preempted_cpu;
+        bool preempt = false;
+
+        pthread_mutex_lock(&current_mutex);
+        for (unsigned int i = 0; i < cpu_count; i++) {
+            pcb_t *curr_proc = current[i];
+            if (curr_proc == NULL) {
+                break;
+            } else if (priority_with_age(current_time, curr_proc) < proc_p) {
+                preempted_cpu = i;
+                preempt = true;    
+                break;      // ******* could be a problem *******
+            }
+        }
+        pthread_mutex_unlock(&current_mutex);
+        if (preempt == true) {
+            force_preempt(preempted_cpu);
+        }
+    }
 }
 
 /**
@@ -401,7 +404,7 @@ int main(int argc, char *argv[])
     age_weight = 0;
     rr_timeslice = 0;
 
-    if (argc != 2)
+    if (argc < 2)
     {
         fprintf(stderr, "CS 2200 Project 4 -- Multithreaded OS Simulator\n"
                         "Usage: ./os-sim <# CPUs> [ -r <time slice> | -p <age weight> ]\n"
@@ -411,9 +414,17 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-
     /* Parse the command line arguments */
     cpu_count = strtoul(argv[1], NULL, 0);
+    if (argc > 2) {
+        if (!strcmp(argv[2], "-p")) {
+            scheduler_algorithm = PA;
+            age_weight = (unsigned int) atoi(argv[3]);
+        } else {
+            rr_timeslice = (unsigned int) atoi(argv[3]);
+            scheduler_algorithm = RR;
+        }
+    }
 
     /* Allocate the current[] array and its mutex */
     current = malloc(sizeof(pcb_t *) * cpu_count);

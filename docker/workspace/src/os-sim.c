@@ -531,7 +531,7 @@ static void simulate_process(unsigned int cpu_id, pcb_t *pcb)
 
     case OP_IO:
         /* Scheduling a process that's blocked on I/O */
-        printf("Scheduled a process that's blocked on I/0! PID: %d\nCPU_ID: %d\n", pcb->pid, cpu_id);
+        printf("Scheduled a process that's blocked on I/0! PID: %d\n ", pcb->pid);
         break;
 
     case OP_TERMINATE:
